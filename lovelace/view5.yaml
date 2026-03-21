@@ -1,0 +1,164 @@
+type: custom:button-card
+entity: sensor.zui_xin_you_jie_summary
+show_name: false
+show_icon: false
+styles:
+  card:
+    - padding: 18px
+    - border: none
+    - box-shadow: none
+  grid:
+    - grid-template-areas: "\"prices\" \"footer\""
+    - grid-template-rows: auto auto
+  custom_fields:
+    prices:
+      - justify-self: stretch
+      - width: 100%
+      - margin-bottom: 15px
+    footer:
+      - justify-self: start
+      - width: 100%
+custom_fields:
+  prices:
+    card:
+      type: grid
+      columns: 2
+      square: false
+      cards:
+        - type: custom:button-card
+          entity: sensor.zui_xin_you_jie_92
+          name: 92#
+          show_state: true
+          styles:
+            card:
+              - background: none
+              - border: none
+              - box-shadow: none
+              - height: 40px
+              - padding: 0px
+            grid:
+              - grid-template-areas: "\"n i s\""
+              - grid-template-columns: 1fr 35px 2fr
+            name:
+              - font-size: 1.2rem
+              - justify-self: end
+              - padding-right: 8px
+            icon:
+              - width: 18px
+              - color: white
+              - justify-self: center
+            state:
+              - font-size: 1.2rem
+              - font-weight: bold
+              - color: "#ea4335"
+              - justify-self: start
+          icon: mdi:gas-station
+        - type: custom:button-card
+          entity: sensor.zui_xin_you_jie_95
+          name: 95#
+          show_state: true
+          styles:
+            card:
+              - background: none
+              - border: none
+              - box-shadow: none
+              - height: 40px
+              - padding: 0px
+            grid:
+              - grid-template-areas: "\"n i s\""
+              - grid-template-columns: 1fr 35px 2fr
+            name:
+              - font-size: 1.2rem
+              - justify-self: end
+              - padding-right: 8px
+            icon:
+              - width: 18px
+              - color: white
+              - justify-self: center
+            state:
+              - font-size: 1.2rem
+              - font-weight: bold
+              - color: "#fbbc05"
+              - justify-self: start
+          icon: mdi:gas-station
+        - type: custom:button-card
+          entity: sensor.zui_xin_you_jie_98
+          name: 98#
+          show_state: true
+          styles:
+            card:
+              - background: none
+              - border: none
+              - box-shadow: none
+              - height: 40px
+              - padding: 0px
+            grid:
+              - grid-template-areas: "\"n i s\""
+              - grid-template-columns: 1fr 35px 2fr
+            name:
+              - font-size: 1.2rem
+              - justify-self: end
+              - padding-right: 8px
+            icon:
+              - width: 18px
+              - color: white
+              - justify-self: center
+            state:
+              - font-size: 1.2rem
+              - font-weight: bold
+              - color: "#4285f4"
+              - justify-self: start
+          icon: mdi:gas-station
+        - type: custom:button-card
+          entity: sensor.zui_xin_you_jie_0
+          name: "0 #"
+          show_state: true
+          styles:
+            card:
+              - background: none
+              - border: none
+              - box-shadow: none
+              - height: 40px
+              - padding: 0px
+            grid:
+              - grid-template-areas: "\"n i s\""
+              - grid-template-columns: 1fr 35px 2fr
+            name:
+              - font-size: 1.2rem
+              - justify-self: end
+              - padding-right: 8px
+            icon:
+              - width: 18px
+              - color: white
+              - justify-self: center
+            state:
+              - font-size: 1.2rem
+              - font-weight: bold
+              - color: "#34a853"
+              - justify-self: start
+          icon: mdi:gas-station
+  footer: |
+    [[[
+      const e = states['sensor.zui_xin_you_jie_summary'];
+      const tips = e.attributes.tips || "暂无信息";
+      const summary = e.state || "";
+      const time = (e.attributes.update_time || "").substring(0, 10);
+      
+      // 22px 刚好是跳过一个 Emoji 的宽度，让文字对齐
+      const indentStyle = "padding-left: 22px; text-indent: -22px;";
+      
+      return `
+        <div style="text-align: left; padding: 4px 0; width: 100%; white-space: normal; word-wrap: break-word;">
+          <div style="font-size: 14px; line-height: 1.6; color: #eee; margin-bottom: 6px; ${indentStyle}">
+            <span>📢 </span><span style="font-weight: bold;">调价提醒：</span>${summary}
+          </div>
+          <div style="font-size: 14px; line-height: 1.6; color: #eee; margin-bottom: 8px; ${indentStyle}">
+            <span>💡 </span><span style="font-weight: bold;">价格变动：</span>${tips}
+          </div>
+          <div style="color: rgba(255,255,255,0.4); font-size: 13px; display: flex; align-items: center; justify-content: flex-start; padding-left: 0;">
+            <ha-icon icon="mdi:history" style="width: 16px; height: 19px; margin-right: 4px;"></ha-icon>
+            更新时间：${time}
+          </div>
+        </div>
+      `;
+    ]]]

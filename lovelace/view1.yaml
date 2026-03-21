@@ -1,0 +1,125 @@
+type: custom:button-card
+entity: sensor.zui_xin_you_jie_summary
+show_name: false
+show_icon: false
+styles:
+  card:
+    - padding: 18px
+    - border: none
+    - box-shadow: none
+  grid:
+    - grid-template-areas: "\"prices\" \"footer\""
+    - grid-template-rows: auto auto
+  custom_fields:
+    prices:
+      - justify-self: stretch
+      - width: 100%
+      - margin-bottom: 15px
+    footer:
+      - justify-self: start
+      - width: 100%
+custom_fields:
+  prices:
+    card:
+      type: grid
+      columns: 2
+      square: false
+      cards:
+        - type: custom:button-card
+          entity: sensor.zui_xin_you_jie_92
+          name: 92#汽油
+          show_state: true
+          icon: mdi:gas-station
+          styles:
+            card:
+              - height: 62px
+              - padding: 8px
+              - border-radius: 10px
+              - background: rgba(234, 67, 53, 0.08)
+              - border: none
+            grid:
+              - grid-template-areas: "\"i n\" \"i s\""
+              - grid-template-columns: 32% 68%
+            name:
+              - color: "#ea4335"
+            state:
+              - color: "#ea4335"
+            icon:
+              - color: "#ea4335"
+        - type: custom:button-card
+          entity: sensor.zui_xin_you_jie_95
+          name: 95#汽油
+          show_state: true
+          icon: mdi:gas-station
+          styles:
+            card:
+              - height: 62px
+              - padding: 8px
+              - border-radius: 10px
+              - background: rgba(251, 188, 5, 0.08)
+              - border: none
+            grid:
+              - grid-template-areas: "\"i n\" \"i s\""
+              - grid-template-columns: 32% 68%
+            name:
+              - color: "#fbbc05"
+            state:
+              - color: "#fbbc05"
+            icon:
+              - color: "#fbbc05"
+        - type: custom:button-card
+          entity: sensor.zui_xin_you_jie_98
+          name: 98#汽油
+          show_state: true
+          icon: mdi:gas-station
+          styles:
+            card:
+              - height: 62px
+              - padding: 8px
+              - border-radius: 10px
+              - background: rgba(66, 133, 244, 0.08)
+              - border: none
+            grid:
+              - grid-template-areas: "\"i n\" \"i s\""
+              - grid-template-columns: 32% 68%
+            name:
+              - color: "#4285f4"
+            state:
+              - color: "#4285f4"
+            icon:
+              - color: "#4285f4"
+        - type: custom:button-card
+          entity: sensor.zui_xin_you_jie_0
+          name: 0#柴油
+          show_state: true
+          icon: mdi:gas-station
+          styles:
+            card:
+              - height: 62px
+              - padding: 8px
+              - border-radius: 10px
+              - background: rgba(52, 168, 83, 0.08)
+              - border: none
+            grid:
+              - grid-template-areas: "\"i n\" \"i s\""
+              - grid-template-columns: 32% 68%
+            name:
+              - color: "#34a853"
+            state:
+              - color: "#34a853"
+            icon:
+              - color: "#34a853"
+  footer: |
+    [[[
+      const e = states['sensor.zui_xin_you_jie_summary'];
+      const u = e.attributes.update_time || "";
+      const date = u.length > 10 ? u.substring(0, 10) : u;
+      return `<div style="text-align:left; color:#eee; font-size:14px; line-height:1.8; white-space:normal;">
+        <div style="margin-bottom: 4px;">📢 调价提醒：${e.state}</div>
+        <div style="margin-bottom: 8px;">💡 价格变动：${e.attributes.tips || "暂无变动说明"}</div>
+        <div style="color:rgba(255,255,255,0.5); font-size:12px; display:flex; align-items:center;">
+          <ha-icon icon="mdi:history" style="width:14px; height:25px; margin-right:5px;"></ha-icon>
+          更新时间：${date}
+        </div>
+      </div>`
+    ]]]

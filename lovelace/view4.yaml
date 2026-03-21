@@ -1,0 +1,27 @@
+type: entities
+title: ⛽ 最新油价查询
+show_header_toggle: false
+entities:
+  - entity: sensor.zui_xin_you_jie_92
+    name: 92# 汽油
+    secondary_info: none
+  - entity: sensor.zui_xin_you_jie_95
+    name: 95# 汽油
+  - entity: sensor.zui_xin_you_jie_98
+    name: 98# 汽油
+  - entity: sensor.zui_xin_you_jie_0
+    name: 0# 柴油
+  - type: section
+  - entity: sensor.zui_xin_you_jie_summary
+    name: 价格变动
+    icon: mdi:information-outline
+  - type: attribute
+    entity: sensor.zui_xin_you_jie_summary
+    attribute: tips
+    name: 调价提醒
+    icon: mdi:bell-outline
+  - type: attribute
+    entity: sensor.zui_xin_you_jie_summary
+    attribute: update_time
+    name: 更新时间
+    icon: mdi:clock-outline

@@ -1,0 +1,135 @@
+type: custom:button-card
+entity: sensor.zui_xin_you_jie_summary
+show_name: false
+show_icon: false
+styles:
+  card:
+    - padding: 16px
+    - border-radius: 12px
+  grid:
+    - grid-template-areas: "\"prices\" \"footer\""
+    - grid-template-rows: auto auto
+  custom_fields:
+    prices:
+      - justify-self: stretch
+      - width: 100%
+      - margin-bottom: 12px
+    footer:
+      - justify-self: start
+      - width: 100%
+custom_fields:
+  prices:
+    card:
+      type: grid
+      columns: 2
+      square: false
+      cards:
+        - type: custom:button-card
+          entity: sensor.zui_xin_you_jie_92
+          name: 92#汽油
+          show_state: true
+          icon: mdi:gas-station
+          styles:
+            card:
+              - height: 62px
+              - padding: 8px
+              - border-radius: 10px
+              - background: rgba(234, 67, 53, 0.08)
+              - border: none
+            grid:
+              - grid-template-areas: "\"i n\" \"i s\""
+              - grid-template-columns: 32% 68%
+            name:
+              - color: "#ea4335"
+            state:
+              - color: "#ea4335"
+            icon:
+              - color: "#ea4335"
+        - type: custom:button-card
+          entity: sensor.zui_xin_you_jie_95
+          name: 95#汽油
+          show_state: true
+          icon: mdi:gas-station
+          styles:
+            card:
+              - height: 62px
+              - padding: 8px
+              - border-radius: 10px
+              - background: rgba(251, 188, 5, 0.08)
+              - border: none
+            grid:
+              - grid-template-areas: "\"i n\" \"i s\""
+              - grid-template-columns: 32% 68%
+            name:
+              - color: "#fbbc05"
+            state:
+              - color: "#fbbc05"
+            icon:
+              - color: "#fbbc05"
+        - type: custom:button-card
+          entity: sensor.zui_xin_you_jie_98
+          name: 98#汽油
+          show_state: true
+          icon: mdi:gas-station
+          styles:
+            card:
+              - height: 62px
+              - padding: 8px
+              - border-radius: 10px
+              - background: rgba(66, 133, 244, 0.08)
+              - border: none
+            grid:
+              - grid-template-areas: "\"i n\" \"i s\""
+              - grid-template-columns: 32% 68%
+            name:
+              - color: "#4285f4"
+            state:
+              - color: "#4285f4"
+            icon:
+              - color: "#4285f4"
+        - type: custom:button-card
+          entity: sensor.zui_xin_you_jie_0
+          name: 0#柴油
+          show_state: true
+          icon: mdi:gas-station
+          styles:
+            card:
+              - height: 62px
+              - padding: 8px
+              - border-radius: 10px
+              - background: rgba(52, 168, 83, 0.08)
+              - border: none
+            grid:
+              - grid-template-areas: "\"i n\" \"i s\""
+              - grid-template-columns: 32% 68%
+            name:
+              - color: "#34a853"
+            state:
+              - color: "#34a853"
+            icon:
+              - color: "#34a853"
+  footer: |
+    [[[
+      const e = states['sensor.zui_xin_you_jie_summary'];
+      const tips = e.attributes.tips || "暂无信息";
+      const summary = e.state || "";
+      const time = (e.attributes.update_time || "").substring(0, 10);
+      
+      // 22px 刚好是跳过一个 Emoji 的宽度，让文字对齐
+      const indentStyle = "padding-left: 22px; text-indent: -22px;";
+      
+      return `
+        <div style="text-align: left; padding: 4px 0; width: 100%; white-space: normal; word-wrap: break-word;">
+          <div style="font-size: 14px; line-height: 1.6; color: #eee; margin-bottom: 6px; ${indentStyle}">
+            <span>📢 </span><span style="font-weight: bold;">调价提醒：</span>${summary}
+          </div>
+          <div style="font-size: 14px; line-height: 1.6; color: #eee; margin-bottom: 8px; ${indentStyle}">
+            <span>💡 </span><span style="font-weight: bold;">价格变动：</span>${tips}
+          </div>
+          <div style="color: rgba(255,255,255,0.4); font-size: 13px; display: flex; align-items: center; justify-content: flex-start; padding-left: 0;">
+            <ha-icon icon="mdi:history" style="width: 16px; height: 19px; margin-right: 4px;"></ha-icon>
+            更新时间：${time}
+          </div>
+        </div>
+      `;
+    ]]]

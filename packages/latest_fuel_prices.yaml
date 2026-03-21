@@ -6,6 +6,6 @@
 
 
 sensor:
-  - platform: oilprice
+  - platform: latest_fuel_prices
     name: 最新油价
     region: shandong
