@@ -113,7 +113,7 @@ custom_fields:
     [[[
       const e = states['sensor.zui_xin_you_jie_summary'];
       const u = e.attributes.update_time || "";
-      const date = u.length > 10 ? u.substring(0, 10) : u;
+      const date = u.length > 16 ? u.substring(5, 16) : u;
       return `<div style="text-align:left; color:#eee; font-size:14px; line-height:1.8; white-space:normal;">
         <div style="margin-bottom: 4px;">📢 调价提醒：${e.state}</div>
         <div style="margin-bottom: 8px;">💡 价格变动：${e.attributes.tips || "暂无变动说明"}</div>

@@ -113,7 +113,8 @@ custom_fields:
       const e = states['sensor.zui_xin_you_jie_summary'];
       const tips = e.attributes.tips || "暂无信息";
       const summary = e.state || "";
-      const time = (e.attributes.update_time || "").substring(0, 10);
+      const rawTime = e.attributes.update_time || "";
+      const time = rawTime.length > 16 ? rawTime.substring(5, 16) : rawTime;
       
       // 22px 刚好是跳过一个 Emoji 的宽度，让文字对齐
       const indentStyle = "padding-left: 22px; text-indent: -22px;";
