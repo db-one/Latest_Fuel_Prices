@@ -77,7 +77,7 @@ class OilDataUpdater:
                 self._last_update = now
 
     def _fetch_data(self):
-        """在线程池中执行同步网络请求 (补全了这部分)"""
+        """在线程池中执行同步网络请求"""
         try:
             header = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
@@ -87,7 +87,7 @@ class OilDataUpdater:
             response.encoding = 'utf-8'
             soup = BeautifulSoup(response.text, "lxml")
             
-            # 解析具体价格
+            # 1. 解析具体价格
             dls = soup.select("#youjia > dl")
             prices = {}
             for dl in dls:
@@ -95,21 +95,38 @@ class OilDataUpdater:
                 dds = dl.select('dd')
                 if dts and dds:
                     dt_text = dts[0].text
-                    # 匹配数字(92, 95, 98, 0)
                     match = re.search(r"\d+", dt_text)
                     if match:
                         key = match.group()
                         prices[key] = dds[0].text.strip()
             
-            # 解析汇总状态 (例如: 2023年03月18日...油价下调)
-            summary_div = soup.select("#youjiaCont > div")
+            # 2. 解析汇总状态和提示信息 (优化部分)
             summary = "未知"
-            if len(summary_div) >= 2:
-                summary = summary_div[1].get_text(strip=True)
+            tips = ""
             
-            # 解析提示信息
-            tips_span = soup.select("#youjiaCont > div:nth-of-type(2) > span")
-            tips = tips_span[0].text.strip() if tips_span else ""
+            # 获取包含调价信息的 div
+            summary_divs = soup.select("#youjiaCont > div")
+            if len(summary_divs) >= 2:
+                target_div = summary_divs[1]
+                
+                # 提取 span 里的提示信息 (例如：目前预计下调油价...)
+                tips_span = target_div.find("span")
+                if tips_span:
+                    tips = tips_span.get_text(strip=True)
+                
+                # 获取该 div 的全部纯文本
+                full_text = target_div.get_text(strip=True)
+                
+                # 核心修改：从总文本中去掉提示信息，剩下的就是“下次油价...调整”
+                if tips:
+                    # 替换掉 tips，剩下的就是日期
+                    summary = full_text.replace(tips, "").strip()
+                else:
+                    summary = full_text
+
+                # 如果获取到的 summary 结尾没有句号，按照你的要求补上
+                if summary and not summary.endswith("。"):
+                    summary += "。"
             
             return {
                 "prices": prices,
