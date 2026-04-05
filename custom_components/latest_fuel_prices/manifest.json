@@ -1,7 +1,7 @@
 {
   "domain": "latest_fuel_prices",
-  "name": "latest_fuel_prices",
-  "version": "0.0.2",
+  "name": "今日油价",
+  "version": "0.2.4",
   "documentation": "https://github.com/aalavender/OilPrice/blob/master/README.md",
   "dependencies": [],
   "codeowners": ["@aalavender"],
