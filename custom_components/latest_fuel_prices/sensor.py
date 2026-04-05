@@ -7,7 +7,6 @@ import asyncio
 import logging
 import datetime
 import voluptuous as vol
-# 核心修改：引入 SensorEntity
 from homeassistant.components.sensor import (
     PLATFORM_SCHEMA, 
     SensorEntity, 
@@ -20,7 +19,7 @@ from homeassistant.const import CONF_NAME, CONF_REGION
 import requests
 from bs4 import BeautifulSoup
 
-__version__ = '0.2.4'
+__version__ = '0.2.6'
 _LOGGER = logging.getLogger(__name__)
 
 REQUIREMENTS = ['requests', 'beautifulsoup4', 'lxml']
@@ -88,6 +87,7 @@ class OilDataUpdater:
             response.encoding = 'utf-8'
             soup = BeautifulSoup(response.text, "lxml")
             
+            # 解析各型号油价
             dls = soup.select("#youjia > dl")
             prices = {}
             for dl in dls:
@@ -106,15 +106,26 @@ class OilDataUpdater:
             if len(summary_divs) >= 2:
                 target_div = summary_divs[1]
                 tips_span = target_div.find("span")
-                if tips_span:
-                    tips = tips_span.get_text(strip=True)
                 
+                # 记录原始文字用于从 summary 中剔除
+                raw_tips_text = ""
+                if tips_span:
+                    raw_tips_text = tips_span.get_text(strip=True)
+                    # 1. 先去掉多余的公众号文字
+                    clean_tips = raw_tips_text.replace("，当前微信公众号油价已更新。", "").replace("当前微信公众号油价已更新。", "").strip()
+                    # 2. 恢复句号：如果删掉后末尾没句号了，给它补上
+                    if clean_tips and not clean_tips.endswith("。"):
+                        clean_tips += "。"
+                    tips = clean_tips
+                
+                # 获取总文本
                 full_text = target_div.get_text(strip=True)
-                if tips:
-                    summary = full_text.replace(tips, "").strip()
+                
+                # 提取 summary (下次调整日期)
+                if raw_tips_text:
+                    summary = full_text.replace(raw_tips_text, "").strip()
                 else:
                     summary = full_text
-
                 if summary and not summary.endswith("。"):
                     summary += "。"
             
@@ -130,14 +141,13 @@ class OilDataUpdater:
 
 
 class OilPriceIndividualSensor(SensorEntity):
-    """单个油价传感器类 - 继承自 SensorEntity"""
+    """单个油价传感器类"""
     def __init__(self, updater, name, region, oil_type):
         self._updater = updater
         self._attr_name = name
         self._region = region
         self._oil_type = oil_type
         
-        # 使用 _attr_ 方式定义属性，确保初始化时就加载
         self._attr_icon = ICON
         self._attr_native_unit_of_measurement = "元/升"
         self._attr_device_class = SensorDeviceClass.MONETARY
@@ -146,7 +156,6 @@ class OilPriceIndividualSensor(SensorEntity):
 
     @property
     def native_value(self):
-        """返回传感器的状态值"""
         prices = self._updater.data.get("prices", {})
         val = prices.get(self._oil_type, "unknown")
         try:
@@ -156,7 +165,6 @@ class OilPriceIndividualSensor(SensorEntity):
 
     @property
     def extra_state_attributes(self):
-        """返回额外的属性"""
         return {
             "region": self._region,
             "oil_type": self._oil_type,
@@ -169,7 +177,7 @@ class OilPriceIndividualSensor(SensorEntity):
 
 
 class OilPriceSummarySensor(Entity):
-    """汇总传感器类 - 仅作为文本显示，保持 Entity 基类即可"""
+    """汇总描述传感器类"""
     def __init__(self, updater, name, region):
         self._updater = updater
         self._attr_name = name
