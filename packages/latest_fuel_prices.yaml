@@ -8,4 +8,9 @@
 sensor:
   - platform: latest_fuel_prices
     name: 最新油价
-    region: shandong
+    region: beijing
+    city: price_110000_2
+
+
+# region参数获取地址: http://www.qiyoujiage.com/beijing.shtml
+# city参数获取地址：https://www.icauto.com.cn/oil/price_110000_2.html
