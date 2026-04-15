@@ -24,7 +24,7 @@ _LOGGER = logging.getLogger(__name__)
 
 REQUIREMENTS = ['requests', 'beautifulsoup4', 'lxml']
 
-SCAN_INTERVAL = datetime.timedelta(hours=6)
+SCAN_INTERVAL = datetime.timedelta(minutes=1)
 ICON = 'mdi:gas-station'
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
@@ -69,14 +69,27 @@ class OilDataUpdater:
     async def async_update(self):
         async with self._lock:
             now = datetime.datetime.now()
-            if self._last_update and (now - self._last_update).total_seconds() < 60:
-                return
+            
+            # 设定目标时间点
+            update_times = [(1, 0), (6, 0)]
+            
+            is_time_to_update = any(now.hour == h and now.minute == m for h, m in update_times)
 
-            _LOGGER.debug(f"Fetching hybrid oil data for {self.region} / {self.city_code}")
+            if self.data:
+                if not is_time_to_update:
+                    return
+                if self._last_update and (now - self._last_update).total_seconds() < 61:
+                    return
+
+            _LOGGER.info(f"开始更新油价数据，当前时间: {now.strftime('%H:%M:%S')}")
             result = await self.hass.async_add_executor_job(self._fetch_all_data)
-            if result:
+            
+            if result and result.get("prices"):
                 self.data = result
                 self._last_update = now
+                _LOGGER.info("油价数据更新成功")
+            else:
+                _LOGGER.warning("油价数据更新失败，将在下次检查时重试")
 
     def _fetch_all_data(self):
         data = {"prices": {}, "summary": "未知", "tips": "", "time": ""}
