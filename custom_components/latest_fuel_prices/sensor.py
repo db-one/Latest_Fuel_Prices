@@ -1,6 +1,6 @@
 """
 A component which allows you to parse oil prices from multiple sources.
-Trends from qiyoujiage.com, Real-time prices from icauto.com.cn
+Trends from qiyoujiage.com, Real-time prices from icauto.com.cn & qiyoujiage.com
 """
 import re
 import asyncio
@@ -11,15 +11,13 @@ from homeassistant.components.sensor import (
     PLATFORM_SCHEMA, 
     SensorEntity, 
     SensorStateClass, 
-    SensorDeviceClass
 )
-from homeassistant.helpers.entity import Entity
 import homeassistant.helpers.config_validation as cv
 from homeassistant.const import CONF_NAME, CONF_REGION
 import requests
 from bs4 import BeautifulSoup
 
-__version__ = '0.3.5'
+__version__ = '0.4.2'
 _LOGGER = logging.getLogger(__name__)
 
 REQUIREMENTS = ['requests', 'beautifulsoup4', 'lxml']
@@ -35,7 +33,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 
 async def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
     """Set up the oil price sensors."""
-    _LOGGER.info("Setting up Hybrid OilPrice sensors (Restoring measurement class)")
+    _LOGGER.info("Setting up Hybrid OilPrice sensors (Integrated Improved Parser)")
     
     region = config[CONF_REGION]
     city_code = config["city"]
@@ -59,7 +57,8 @@ class OilDataUpdater:
         self.hass = hass
         self.region = region
         self.city_code = city_code
-        self.data = {}
+        self.data = {} 
+        self._last_prices = {} 
         self._last_update = None
         self._lock = asyncio.Lock()
         self.headers = {
@@ -70,75 +69,141 @@ class OilDataUpdater:
         async with self._lock:
             now = datetime.datetime.now()
             
-            # 设定目标时间点
-            update_times = [(1, 0), (6, 0)]
-            
+            # 定时检查更新 (1:05, 6:05)
+            update_times = [(1, 5), (6, 5)]
             is_time_to_update = any(now.hour == h and now.minute == m for h, m in update_times)
 
-            if self.data:
-                if not is_time_to_update:
-                    return
-                if self._last_update and (now - self._last_update).total_seconds() < 61:
-                    return
+            if self.data and not is_time_to_update:
+                return
 
-            _LOGGER.info(f"开始更新油价数据，当前时间: {now.strftime('%H:%M:%S')}")
-            result = await self.hass.async_add_executor_job(self._fetch_all_data)
+            _LOGGER.info(f"正在抓取双源数据并比对最新油价...")
+            result = await self.hass.async_add_executor_job(self._fetch_and_compare_data)
             
             if result and result.get("prices"):
+                # 如果当前已有数据，在覆盖前先存入 _last_prices 用于下次比对
+                if self.data.get("prices"):
+                    self._last_prices = self.data["prices"]
+                
                 self.data = result
                 self._last_update = now
-                _LOGGER.info("油价数据更新成功")
+                _LOGGER.info(f"更新成功，采用源: {result.get('source_log')}")
             else:
-                _LOGGER.warning("油价数据更新失败，将在下次检查时重试")
+                _LOGGER.warning("抓取失败，未获取到有效油价数据")
 
-    def _fetch_all_data(self):
-        data = {"prices": {}, "summary": "未知", "tips": "", "time": ""}
+    def _fetch_and_compare_data(self):
+        """核心比对逻辑"""
+        res1 = self._get_qiyoujiage_data() # 使用你提供的旧版改进解析逻辑
+        res2 = self._get_icauto_data()     # 保持 icauto 解析
+
+        final_prices = {}
+        source_selected = "none"
+
+        p1 = res1.get("prices", {})
+        p2 = res2.get("prices", {})
+        old_p = self._last_prices
+
+        # 比对逻辑
+        if p1 and not p2:
+            final_prices = p1
+            source_selected = "qiyoujiage (icauto失效)"
+        elif p2 and not p1:
+            final_prices = p2
+            source_selected = "icauto (qiyoujiage失效)"
+        elif p1 and p2:
+            if p1 == p2:
+                final_prices = p1
+                source_selected = "both (数据一致)"
+            else:
+                # 检查谁的数据发生了变化（谁先更新）
+                p1_changed = old_p and p1 != old_p
+                p2_changed = old_p and p2 != old_p
+                
+                if p1_changed and not p2_changed:
+                    final_prices = p1
+                    source_selected = "qiyoujiage (已更新)"
+                elif p2_changed and not p1_changed:
+                    final_prices = p2
+                    source_selected = "icauto (已更新)"
+                else:
+                    # 默认选 icauto (表格结构通常较稳定)
+                    final_prices = p2
+                    source_selected = "icauto (双源变动/初始)"
         
-        # --- 源 1: 趋势 (qiyoujiage.com) ---
+        return {
+            "prices": final_prices,
+            "summary": res1.get("summary", "未知"),
+            "tips": res1.get("tips", ""),
+            "time": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "source_log": source_selected
+        }
+
+    def _get_qiyoujiage_data(self):
+        """参考你提供的代码：精准解析 qiyoujiage.com"""
+        res_data = {"prices": {}, "summary": "未知", "tips": ""}
         try:
-            url_trend = f'http://www.qiyoujiage.com/{self.region}.shtml'
-            res_trend = requests.get(url_trend, headers=self.headers, timeout=10)
-            res_trend.encoding = 'utf-8'
-            soup_trend = BeautifulSoup(res_trend.text, "lxml")
+            url = f'http://www.qiyoujiage.com/{self.region}.shtml'
+            r = requests.get(url, headers=self.headers, timeout=15)
+            r.encoding = 'utf-8'
+            soup = BeautifulSoup(r.text, "lxml")
             
-            summary_divs = soup_trend.select("#youjiaCont > div")
+            # --- 1. 价格解析部分 (使用了你提供的 DL 结构解析) ---
+            dls = soup.select("#youjia > dl")
+            for dl in dls:
+                dts = dl.select('dt')
+                dds = dl.select('dd')
+                if dts and dds:
+                    dt_text = dts[0].text
+                    match = re.search(r"\d+", dt_text)
+                    if match:
+                        key = match.group() # 这里会得到 92, 95, 98, 0
+                        res_data["prices"][key] = dds[0].text.strip()
+
+            # --- 2. 趋势描述部分 (使用了你提供的 Tips 清洗逻辑) ---
+            summary_divs = soup.select("#youjiaCont > div")
             if len(summary_divs) >= 2:
                 target_div = summary_divs[1]
                 tips_span = target_div.find("span")
-                raw_tips_text = tips_span.get_text(strip=True) if tips_span else ""
-                clean_tips = raw_tips_text.replace("，当前微信公众号油价已更新。", "").replace("当前微信公众号油价已更新。", "").strip()
-                if clean_tips and not clean_tips.endswith("。"): clean_tips += "。"
-                data["tips"] = clean_tips
+                
+                raw_tips_text = ""
+                if tips_span:
+                    raw_tips_text = tips_span.get_text(strip=True)
+                    clean_tips = raw_tips_text.replace("，当前微信公众号油价已更新。", "").replace("当前微信公众号油价已更新。", "").strip()
+                    if clean_tips and not clean_tips.endswith("。"):
+                        clean_tips += "。"
+                    res_data["tips"] = clean_tips
+                
                 full_text = target_div.get_text(strip=True)
                 summary = full_text.replace(raw_tips_text, "").strip()
-                if summary and not summary.endswith("。"): summary += "。"
-                data["summary"] = summary
+                if summary and not summary.endswith("。"):
+                    summary += "。"
+                res_data["summary"] = summary
         except Exception as e:
-            _LOGGER.warning(f"Error fetching trend data: {e}")
+            _LOGGER.warning(f"Error fetching from qiyoujiage: {e}")
+        return res_data
 
-        # --- 源 2: 实时价格 (icauto.com.cn 历史表解析) ---
+    def _get_icauto_data(self):
+        """解析 icauto.com.cn 的价格"""
+        res_data = {"prices": {}}
         try:
-            url_price = f'https://www.icauto.com.cn/oil/{self.city_code}.html'
-            res_price = requests.get(url_price, headers=self.headers, timeout=10)
-            res_price.encoding = 'utf-8'
-            soup_price = BeautifulSoup(res_price.text, "lxml")
+            url = f'https://www.icauto.com.cn/oil/{self.city_code}.html'
+            r = requests.get(url, headers=self.headers, timeout=15)
+            r.encoding = 'utf-8'
+            soup = BeautifulSoup(r.text, "lxml")
             
-            table = soup_price.find("table")
+            table = soup.find("table")
             if table:
                 rows = table.find_all("tr")
                 if len(rows) >= 2:
                     latest_row = rows[1]
                     tds = latest_row.find_all("td")
                     if len(tds) >= 7:
-                        data["prices"]["92"] = tds[2].get_text(strip=True)
-                        data["prices"]["95"] = tds[4].get_text(strip=True)
-                        data["prices"]["98"] = tds[5].get_text(strip=True)
-                        data["prices"]["0"]  = tds[6].get_text(strip=True)
+                        res_data["prices"]["92"] = tds[2].get_text(strip=True)
+                        res_data["prices"]["95"] = tds[4].get_text(strip=True)
+                        res_data["prices"]["98"] = tds[5].get_text(strip=True)
+                        res_data["prices"]["0"]  = tds[6].get_text(strip=True)
         except Exception as e:
-            _LOGGER.error(f"Error parsing icauto table: {e}")
-
-        data["time"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        return data
+            _LOGGER.warning(f"Error fetching from icauto: {e}")
+        return res_data
 
 
 class OilPriceIndividualSensor(SensorEntity):
@@ -149,8 +214,6 @@ class OilPriceIndividualSensor(SensorEntity):
         self._oil_type = oil_type
         self._attr_icon = ICON
         self._attr_native_unit_of_measurement = "元/升"
-        
-        self._attr_device_class = None 
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_unique_id = f"oil_price_{region}_{oil_type}"
 
@@ -171,6 +234,7 @@ class OilPriceIndividualSensor(SensorEntity):
             "region": self._region,
             "oil_type": self._oil_type,
             "tips": self._updater.data.get("tips"),
+            "source": self._updater.data.get("source_log"),
             "update_time": self._updater.data.get("time")
         }
 
@@ -178,7 +242,7 @@ class OilPriceIndividualSensor(SensorEntity):
         await self._updater.async_update()
 
 
-class OilPriceSummarySensor(Entity):
+class OilPriceSummarySensor(SensorEntity):
     def __init__(self, updater, name, region):
         self._updater = updater
         self._attr_name = name
@@ -192,8 +256,9 @@ class OilPriceSummarySensor(Entity):
 
     @property
     def extra_state_attributes(self):
-        attrs = self._updater.data.get("prices", {}).copy()
+        attrs = (self._updater.data.get("prices") or {}).copy()
         attrs["tips"] = self._updater.data.get("tips")
+        attrs["source"] = self._updater.data.get("source_log")
         attrs["update_time"] = self._updater.data.get("time")
         return attrs
 
