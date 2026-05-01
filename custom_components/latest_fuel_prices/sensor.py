@@ -17,7 +17,7 @@ from homeassistant.const import CONF_NAME, CONF_REGION
 import requests
 from bs4 import BeautifulSoup
 
-__version__ = '0.4.2'
+__version__ = '0.4.3'
 _LOGGER = logging.getLogger(__name__)
 
 REQUIREMENTS = ['requests', 'beautifulsoup4', 'lxml']
@@ -69,8 +69,8 @@ class OilDataUpdater:
         async with self._lock:
             now = datetime.datetime.now()
             
-            # 定时检查更新 (1:05, 6:05)
-            update_times = [(1, 5), (6, 5)]
+            # 定时检查更新 (1:00, 6:00)
+            update_times = [(1, 0), (6, 0)]
             is_time_to_update = any(now.hour == h and now.minute == m for h, m in update_times)
 
             if self.data and not is_time_to_update:
@@ -91,7 +91,7 @@ class OilDataUpdater:
                 _LOGGER.warning("抓取失败，未获取到有效油价数据")
 
     def _fetch_and_compare_data(self):
-        """核心比对逻辑"""
+        """核心比对逻辑 (Qiyoujiage 优先策略)"""
         res1 = self._get_qiyoujiage_data() # 使用你提供的旧版改进解析逻辑
         res2 = self._get_icauto_data()     # 保持 icauto 解析
 
@@ -102,32 +102,23 @@ class OilDataUpdater:
         p2 = res2.get("prices", {})
         old_p = self._last_prices
 
-        # 比对逻辑
-        if p1 and not p2:
-            final_prices = p1
-            source_selected = "qiyoujiage (icauto失效)"
-        elif p2 and not p1:
+        # 优先级逻辑判断
+        if p1:
+            p1_changed = old_p and p1 != old_p
+            # 如果是初始状态 (无历史) 或 qiyoujiage 发生变化，则优先使用 qiyoujiage
+            if not old_p or p1_changed:
+                final_prices = p1
+                source_selected = "qiyoujiage (优先/已更新)"
+            elif p2:
+                # 若 qiyoujiage 没有变化，且 icauto 有数据，则使用 icauto 补充
+                final_prices = p2
+                source_selected = "icauto (qiyoujiage无变化)"
+            else:
+                final_prices = p1
+                source_selected = "qiyoujiage (icauto失效)"
+        elif p2:
             final_prices = p2
             source_selected = "icauto (qiyoujiage失效)"
-        elif p1 and p2:
-            if p1 == p2:
-                final_prices = p1
-                source_selected = "both (数据一致)"
-            else:
-                # 检查谁的数据发生了变化（谁先更新）
-                p1_changed = old_p and p1 != old_p
-                p2_changed = old_p and p2 != old_p
-                
-                if p1_changed and not p2_changed:
-                    final_prices = p1
-                    source_selected = "qiyoujiage (已更新)"
-                elif p2_changed and not p1_changed:
-                    final_prices = p2
-                    source_selected = "icauto (已更新)"
-                else:
-                    # 默认选 icauto (表格结构通常较稳定)
-                    final_prices = p2
-                    source_selected = "icauto (双源变动/初始)"
         
         return {
             "prices": final_prices,
@@ -146,7 +137,7 @@ class OilDataUpdater:
             r.encoding = 'utf-8'
             soup = BeautifulSoup(r.text, "lxml")
             
-            # --- 1. 价格解析部分 (使用了你提供的 DL 结构解析) ---
+            # --- 1. 价格解析部分 ---
             dls = soup.select("#youjia > dl")
             for dl in dls:
                 dts = dl.select('dt')
@@ -158,7 +149,7 @@ class OilDataUpdater:
                         key = match.group() # 这里会得到 92, 95, 98, 0
                         res_data["prices"][key] = dds[0].text.strip()
 
-            # --- 2. 趋势描述部分 (使用了你提供的 Tips 清洗逻辑) ---
+            # --- 2. 趋势描述部分 ---
             summary_divs = soup.select("#youjiaCont > div")
             if len(summary_divs) >= 2:
                 target_div = summary_divs[1]
