@@ -6,6 +6,8 @@ import re
 import asyncio
 import logging
 import datetime
+import os
+import json
 import voluptuous as vol
 from homeassistant.components.sensor import (
     PLATFORM_SCHEMA, 
@@ -17,7 +19,7 @@ from homeassistant.const import CONF_NAME, CONF_REGION
 import requests
 from bs4 import BeautifulSoup
 
-__version__ = '0.4.3'
+__version__ = '0.4.4'
 _LOGGER = logging.getLogger(__name__)
 
 REQUIREMENTS = ['requests', 'beautifulsoup4', 'lxml']
@@ -64,6 +66,27 @@ class OilDataUpdater:
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
         }
+        
+        # 增加持久化缓存文件路径
+        self._cache_file = hass.config.path(".oil_price_cache.json")
+        self._load_last_prices()
+
+    def _load_last_prices(self):
+        """从文件中加载上一次的缓存价格，防止重启丢失"""
+        if os.path.exists(self._cache_file):
+            try:
+                with open(self._cache_file, "r", encoding="utf-8") as f:
+                    self._last_prices = json.load(f)
+            except Exception as e:
+                _LOGGER.warning(f"无法读取油价缓存文件: {e}")
+
+    def _save_last_prices(self, prices):
+        """将价格保存到文件中"""
+        try:
+            with open(self._cache_file, "w", encoding="utf-8") as f:
+                json.dump(prices, f, ensure_ascii=False)
+        except Exception as e:
+            _LOGGER.warning(f"无法写入油价缓存文件: {e}")
 
     async def async_update(self):
         async with self._lock:
@@ -86,14 +109,18 @@ class OilDataUpdater:
                 
                 self.data = result
                 self._last_update = now
+                
+                # 持久化存储
+                self._save_last_prices(self.data["prices"])
+                
                 _LOGGER.info(f"更新成功，采用源: {result.get('source_log')}")
             else:
                 _LOGGER.warning("抓取失败，未获取到有效油价数据")
 
     def _fetch_and_compare_data(self):
-        """核心比对逻辑 (Qiyoujiage 优先策略)"""
-        res1 = self._get_qiyoujiage_data() # 使用你提供的旧版改进解析逻辑
-        res2 = self._get_icauto_data()     # 保持 icauto 解析
+        """核心比对逻辑 (Qiyoujiage 优先，滞后自动降级)"""
+        res1 = self._get_qiyoujiage_data()  # 主数据源：qiyoujiage
+        res2 = self._get_icauto_data()      # 备用数据源：icauto
 
         final_prices = {}
         source_selected = "none"
@@ -102,21 +129,29 @@ class OilDataUpdater:
         p2 = res2.get("prices", {})
         old_p = self._last_prices
 
-        # 优先级逻辑判断
-        if p1:
-            p1_changed = old_p and p1 != old_p
-            # 如果是初始状态 (无历史) 或 qiyoujiage 发生变化，则优先使用 qiyoujiage
+        # 逻辑判断：
+        # 情况 A: qiyoujiage 能够正常获取且数据有更新 (以 qiyoujiage 为准)
+        p1_changed = old_p and p1 != old_p
+        
+        if p1 and any(p1.values()):
+            # 如果是第一次运行，或者 qiyoujiage 数据发生了变化，直接优先使用
             if not old_p or p1_changed:
                 final_prices = p1
-                source_selected = "qiyoujiage (优先/已更新)"
-            elif p2:
-                # 若 qiyoujiage 没有变化，且 icauto 有数据，则使用 icauto 补充
-                final_prices = p2
-                source_selected = "icauto (qiyoujiage无变化)"
+                source_selected = "qiyoujiage (已更新)"
             else:
-                final_prices = p1
-                source_selected = "qiyoujiage (icauto失效)"
-        elif p2:
+                # 情况 B: qiyoujiage 没有更新 (仍处于旧周期)，此时检查 icauto 是否发生了变化（说明 icauto 进入了新周期）
+                p2_changed = old_p and p2 != old_p
+                
+                if p2 and any(p2.values()) and p2_changed:
+                    # icauto 更新了新数据，而 qiyoujiage 还在滞后，采用 icauto 的数据
+                    final_prices = p2
+                    source_selected = "icauto (qiyoujiage滞后，临时过渡)"
+                else:
+                    # 两个数据源均未变化，或都无法判断，默认使用 qiyoujiage
+                    final_prices = p1
+                    source_selected = "qiyoujiage (保持旧数据)"
+        elif p2 and any(p2.values()):
+            # 如果 qiyoujiage 获取失败，直接回退使用 icauto
             final_prices = p2
             source_selected = "icauto (qiyoujiage失效)"
         
@@ -129,15 +164,13 @@ class OilDataUpdater:
         }
 
     def _get_qiyoujiage_data(self):
-        """参考你提供的代码：精准解析 qiyoujiage.com"""
+        """解析 qiyoujiage.com"""
         res_data = {"prices": {}, "summary": "未知", "tips": ""}
         try:
             url = f'http://www.qiyoujiage.com/{self.region}.shtml'
             r = requests.get(url, headers=self.headers, timeout=15)
             r.encoding = 'utf-8'
             soup = BeautifulSoup(r.text, "lxml")
-            
-            # --- 1. 价格解析部分 ---
             dls = soup.select("#youjia > dl")
             for dl in dls:
                 dts = dl.select('dt')
@@ -146,15 +179,12 @@ class OilDataUpdater:
                     dt_text = dts[0].text
                     match = re.search(r"\d+", dt_text)
                     if match:
-                        key = match.group() # 这里会得到 92, 95, 98, 0
+                        key = match.group()
                         res_data["prices"][key] = dds[0].text.strip()
-
-            # --- 2. 趋势描述部分 ---
             summary_divs = soup.select("#youjiaCont > div")
             if len(summary_divs) >= 2:
                 target_div = summary_divs[1]
                 tips_span = target_div.find("span")
-                
                 raw_tips_text = ""
                 if tips_span:
                     raw_tips_text = tips_span.get_text(strip=True)
@@ -162,7 +192,6 @@ class OilDataUpdater:
                     if clean_tips and not clean_tips.endswith("。"):
                         clean_tips += "。"
                     res_data["tips"] = clean_tips
-                
                 full_text = target_div.get_text(strip=True)
                 summary = full_text.replace(raw_tips_text, "").strip()
                 if summary and not summary.endswith("。"):
@@ -180,7 +209,6 @@ class OilDataUpdater:
             r = requests.get(url, headers=self.headers, timeout=15)
             r.encoding = 'utf-8'
             soup = BeautifulSoup(r.text, "lxml")
-            
             table = soup.find("table")
             if table:
                 rows = table.find_all("tr")
