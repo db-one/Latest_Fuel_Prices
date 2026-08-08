@@ -19,7 +19,7 @@ from homeassistant.const import CONF_NAME, CONF_REGION
 import requests
 from bs4 import BeautifulSoup
 
-__version__ = '0.4.5'
+__version__ = '0.4.6'
 _LOGGER = logging.getLogger(__name__)
 
 REQUIREMENTS = ['requests', 'beautifulsoup4', 'lxml']
@@ -153,11 +153,14 @@ class OilDataUpdater:
 
         # 更新调价周期信息
         if res1.get("next_adjust_time"):
-            if self._oil_cycle.get("next_adjust_time") != res1["next_adjust_time"]:
+            old_adjust = self._oil_cycle.get("next_adjust_time")
+            if old_adjust != res1["next_adjust_time"]:
+                current_92 = (self.data.get("prices", {}).get("92")
+                              or self._last_prices.get("92")
+                              or p1_92)
                 self._oil_cycle = {
                     "next_adjust_time": res1["next_adjust_time"],
-                    "before_92": self.data.get("prices", {}).get("92")
-                        or self._last_prices.get("92"),
+                    "before_92": current_92,
                     "updated": False,
                     "source": None
                 }
@@ -222,6 +225,20 @@ class OilDataUpdater:
         }
 
 
+    def _parse_next_adjust_time(self, text):
+        """解析类似: 下次油价8月14日24时调整。"""
+        try:
+            match = re.search(r"(\d+)月(\d+)日24时", text or "")
+            if match:
+                month = int(match.group(1))
+                day = int(match.group(2))
+                now = datetime.datetime.now()
+                dt = datetime.datetime(now.year, month, day) + datetime.timedelta(days=1)
+                return dt.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception as e:
+            _LOGGER.warning(f"解析调价时间失败: {e}")
+        return None
+
     def _get_qiyoujiage_data(self):
         """解析 qiyoujiage.com 数据"""
         res_data = {"prices": {}, "summary": "未知", "tips": "", "next_adjust_time": None}
@@ -261,6 +278,7 @@ class OilDataUpdater:
                 if summary and not summary.endswith("。"):
                     summary += "。"
                 res_data["summary"] = summary
+                res_data["next_adjust_time"] = self._parse_next_adjust_time(summary)
         except Exception as e:
             _LOGGER.warning(f"Error fetching from qiyoujiage: {e}")
         return res_data
