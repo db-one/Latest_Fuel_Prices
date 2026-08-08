@@ -60,7 +60,14 @@ class OilDataUpdater:
         self.region = region
         self.city_code = city_code
         self.data = {} 
-        self._last_prices = {} 
+        self._last_prices = {}
+        # 调价周期状态：记录下一次调价时间、调价前92号价格以及本轮已采用来源
+        self._oil_cycle = {
+            "next_adjust_time": None,
+            "before_92": None,
+            "updated": False,
+            "source": None
+        }
         self._last_update = None
         self._lock = asyncio.Lock()
         self.headers = {
@@ -76,15 +83,24 @@ class OilDataUpdater:
         if os.path.exists(self._cache_file):
             try:
                 with open(self._cache_file, "r", encoding="utf-8") as f:
-                    self._last_prices = json.load(f)
+                    cache = json.load(f)
+                    if "prices" in cache:
+                        self._last_prices = cache.get("prices", {})
+                        self._oil_cycle = cache.get("cycle", self._oil_cycle)
+                    else:
+                        # 兼容旧版本缓存
+                        self._last_prices = cache
             except Exception as e:
                 _LOGGER.warning(f"无法读取油价缓存文件: {e}")
 
     def _save_last_prices(self, prices):
-        """保存当前价格到文件"""
+        """保存当前价格和调价周期状态到文件"""
         try:
             with open(self._cache_file, "w", encoding="utf-8") as f:
-                json.dump(prices, f, ensure_ascii=False)
+                json.dump({
+                    "prices": prices,
+                    "cycle": self._oil_cycle
+                }, f, ensure_ascii=False)
         except Exception as e:
             _LOGGER.warning(f"无法写入油价缓存文件: {e}")
 
@@ -117,48 +133,86 @@ class OilDataUpdater:
                 _LOGGER.warning("抓取失败，未获取到有效数据")
 
     def _fetch_and_compare_data(self):
-        """核心比对逻辑 (以92号汽油为准判断更新状态)"""
-        res1 = self._get_qiyoujiage_data()  # 主源
-        res2 = self._get_icauto_data()      # 备用源
+        """核心比对逻辑
+        规则：
+        1. 以 qiyoujiage 的调价提醒时间作为调价周期锚点
+        2. 只比较92号汽油
+        3. 调价后首次发现新价格的来源先采用
+        4. qiyoujiage 后续更新时拥有最高优先级
+        """
+        res1 = self._get_qiyoujiage_data()
+        res2 = self._get_icauto_data()
+
+        p1 = res1.get("prices", {})
+        p2 = res2.get("prices", {})
+
+        p1_92 = p1.get("92")
+        p2_92 = p2.get("92")
+
+        now = datetime.datetime.now()
+
+        # 更新调价周期信息
+        if res1.get("next_adjust_time"):
+            if self._oil_cycle.get("next_adjust_time") != res1["next_adjust_time"]:
+                self._oil_cycle = {
+                    "next_adjust_time": res1["next_adjust_time"],
+                    "before_92": self.data.get("prices", {}).get("92")
+                        or self._last_prices.get("92"),
+                    "updated": False,
+                    "source": None
+                }
+
+        before_92 = self._oil_cycle.get("before_92")
+
+        # 调价时间之后一小时才允许判断新价格
+        can_check = False
+        try:
+            if self._oil_cycle.get("next_adjust_time"):
+                adjust_time = datetime.datetime.strptime(
+                    self._oil_cycle["next_adjust_time"],
+                    "%Y-%m-%d %H:%M:%S"
+                )
+                can_check = now >= adjust_time + datetime.timedelta(hours=1)
+        except Exception:
+            can_check = False
+
+        qiyou_changed = bool(
+            can_check and before_92 and p1_92 and p1_92 != before_92
+        )
+        icauto_changed = bool(
+            can_check and before_92 and p2_92 and p2_92 != before_92
+        )
 
         final_prices = {}
         source_selected = "none"
 
-        p1 = res1.get("prices", {})
-        p2 = res2.get("prices", {})
-        old_p = self._last_prices
-
-        # 获取各源 92 号油价作为对比锚点
-        p1_92 = p1.get("92")
-        p2_92 = p2.get("92")
-        old_92 = old_p.get("92")
-
-        # 1. 优先尝试 qiyoujiage
-        if p1_92:
-            # 判断 qiyoujiage 是否发生了更新 (针对 92#)
-            p1_updated = old_92 and p1_92 != old_92
-            
-            if not old_92 or p1_updated:
-                # 初次启动或主源已更新
+        # 本轮已经有结果
+        if self._oil_cycle.get("updated"):
+            # qiyoujiage 后续更新，覆盖icauto
+            if qiyou_changed:
                 final_prices = p1
-                source_selected = "qiyoujiage (已更新)"
+                self._oil_cycle["source"] = "qiyoujiage"
+                source_selected = "qiyoujiage (优先更新)"
             else:
-                # 主源 92# 没变，检查备用源 icauto 的 92# 是否变了
-                p2_updated = old_92 and p2_92 != old_92
-                
-                if p2_92 and p2_updated:
-                    # 备用源已更新，主源滞后
-                    final_prices = p2
-                    source_selected = "icauto (qiyoujiage滞后，临时过渡)"
-                else:
-                    # 两边都没变，或者 icauto 也没数据，维持主源数据
-                    final_prices = p1
-                    source_selected = "qiyoujiage (保持旧数据)"
-        # 2. 如果 qiyoujiage 挂了，尝试使用 icauto
-        elif p2_92:
-            final_prices = p2
-            source_selected = "icauto (qiyoujiage失效回退)"
-        
+                final_prices = self.data.get("prices") or p2 or p1
+                source_selected = self._oil_cycle.get("source", "保持已更新数据")
+
+        else:
+            # 第一次发现新油价，谁先变谁赢
+            if qiyou_changed:
+                final_prices = p1
+                self._oil_cycle["updated"] = True
+                self._oil_cycle["source"] = "qiyoujiage"
+                source_selected = "qiyoujiage (本轮首次更新)"
+            elif icauto_changed:
+                final_prices = p2
+                self._oil_cycle["updated"] = True
+                self._oil_cycle["source"] = "icauto"
+                source_selected = "icauto (本轮首次更新)"
+            else:
+                final_prices = p1 or p2
+                source_selected = "等待调价更新"
+
         return {
             "prices": final_prices,
             "summary": res1.get("summary", "未知"),
@@ -167,9 +221,10 @@ class OilDataUpdater:
             "source_log": source_selected
         }
 
+
     def _get_qiyoujiage_data(self):
         """解析 qiyoujiage.com 数据"""
-        res_data = {"prices": {}, "summary": "未知", "tips": ""}
+        res_data = {"prices": {}, "summary": "未知", "tips": "", "next_adjust_time": None}
         try:
             url = f'http://www.qiyoujiage.com/{self.region}.shtml'
             r = requests.get(url, headers=self.headers, timeout=15)
